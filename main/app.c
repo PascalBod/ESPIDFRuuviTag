@@ -31,12 +31,23 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
+// Minimal advertising data length we are waiting for:
+// Flags: 3 bytes
+// Manufacturer Data: 4 bytes
+#define MINIMAL_ADV_LENGTH 7
+// For Flags AD structure.
+#define FLAGS_LENGTH 2
+#define FLAGS_TYPE 0x01
+// For Manufacturer Data structure.
+#define MD_TYPE 0xff
+#define MD_CI_CODE 0x9904
+
 // 1000 ms.
 #define SCAN_INTERVAL 0x0640
 // 500 ms.
 #define SCAN_WINDOW 0x0320
 
-#define APP_VERSION "RuuviTagRec 0.2.1"
+#define APP_VERSION "RuuviTagRec 0.3.1"
 
 static const char APP_TAG[] = "RUUVITAGREC";
 
@@ -51,12 +62,52 @@ static esp_ble_scan_params_t ble_scan_params = {
     .scan_duplicate         = BLE_SCAN_DUPLICATE_DISABLE
 };
 
-static void check_ruuvi_tag_adv(uint8_t *buffer, uint8_t buffer_length) {
+static void check_ruuvi_tag_adv(uint8_t *buffer_ptr, uint8_t buffer_length) {
 
+	// Format of advertising data is described page 1392 of
+	// BLUETOOTH CORE SPECIFICATION Version 5.2 | Vol 3, Part C.
+	//
+    // We are waiting for data containing two AD structures, the first one
+	// of type 0x01 (Flags) and the second one of type 0xff (Manufacturer Data).
+	//
+	// Flags type is defined in BLUETOOTH SPECIFICATION Version 4.0, Vol. 3,
+	// Part C, Section 18.1. Manufacturer Data type is defined in section 18.11.
+	//
+	// Format of Manufacturer Data is described here:
+	// https://github.com/ruuvi/ruuvi-sensor-protocols/blob/master/broadcast_formats.md
+
+	// Do we have minimal required size: Flags + start of Manufacturer Data ?
+	if (buffer_length < MINIMAL_ADV_LENGTH) {
+		ESP_LOGI(APP_TAG, "AD: message too short");
+		return;
+	}
+	uint8_t *buffer_index = buffer_ptr;
+	// Flags.
+	if (*buffer_index != FLAGS_LENGTH) {
+		ESP_LOGI(APP_TAG, "AD: no Flags structure");
+		return;
+	}
+	buffer_index++;
+	if (*buffer_index != FLAGS_TYPE) {
+		ESP_LOGI(APP_TAG, "AD: no Flags type");
+		return;
+	}
+	buffer_index += 2;
+	//uint8_t md_length = *buffer_index;
+	buffer_index++;
+	if (*buffer_index != MD_TYPE) {
+		ESP_LOGI(APP_TAG, "AD: no manufacturer data type");
+		return;
+	}
+	buffer_index++;
+	uint16_t company_identifier = (*buffer_index << 8) + *(buffer_index + 1);
+	if (company_identifier != MD_CI_CODE) {
+		ESP_LOGI(APP_TAG, "AD: no Ruuvi identifier");
+		return;
+	}
 }
 
-static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
+static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
     esp_err_t err;
 
     switch (event) {
@@ -75,6 +126,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             ESP_LOGI(APP_TAG, "Frame received:");
             ESP_LOG_BUFFER_HEX(APP_TAG, param->scan_rst.ble_adv, param->scan_rst.adv_data_len);
             // Frame example: 02 01 06 11 ff 99 04 03 6f 17 11 bf 51 00 0c 00 04 03 dd 0b a1
+            check_ruuvi_tag_adv(param->scan_rst.ble_adv, param->scan_rst.adv_data_len);
         	break;
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
         	ESP_LOGI(APP_TAG, "Result: SEARCH_INQ_CMPL");
