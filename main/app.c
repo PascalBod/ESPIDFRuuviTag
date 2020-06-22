@@ -42,12 +42,16 @@
 #define MD_TYPE 0xff
 #define MD_CI_CODE 0x9904
 
+// Ruuvi data header bytes.
+#define RUUVI_RAWV1 0x03
+#define RUUVI_RAWV2 0x05
+
 // 1000 ms.
 #define SCAN_INTERVAL 0x0640
 // 500 ms.
 #define SCAN_WINDOW 0x0320
 
-#define APP_VERSION "RuuviTagRec 0.3.1"
+#define APP_VERSION "RuuviTagRec 0.3.2"
 
 static const char APP_TAG[] = "RUUVITAGREC";
 
@@ -61,6 +65,32 @@ static esp_ble_scan_params_t ble_scan_params = {
     .scan_window            = SCAN_WINDOW,
     .scan_duplicate         = BLE_SCAN_DUPLICATE_DISABLE
 };
+
+static void check_ruuvi_tag_data(uint8_t *data_ptr, uint8_t data_length, uint8_t remaining_length) {
+
+	if (remaining_length < data_length) {
+		ESP_LOGI(APP_TAG, "Ruuvi: data too short - %d - %d", data_length, remaining_length);
+		return;
+	}
+	// Check header byte.
+	if (*data_ptr == RUUVI_RAWV1) {
+		// Get humidity.
+		data_ptr++;
+		float humidity = (*data_ptr) / 2;
+		// Get temperature.
+		data_ptr++;
+		float temperature = (*data_ptr);
+		if (temperature < 0)
+			temperature -= (float)(*(data_ptr + 1)) / 100.0;
+		else
+			temperature += (float)(*(data_ptr + 1)) / 100.0;
+		// Get pressure.
+		data_ptr += 2;
+		float pressure = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 50.0;
+		// Display.
+		ESP_LOGI(APP_TAG, "Ruuvi: humidity: %f - temperature: %f - pressure: %f", humidity, temperature, pressure);
+	}
+}
 
 static void check_ruuvi_tag_adv(uint8_t *buffer_ptr, uint8_t buffer_length) {
 
@@ -83,28 +113,40 @@ static void check_ruuvi_tag_adv(uint8_t *buffer_ptr, uint8_t buffer_length) {
 	}
 	uint8_t *buffer_index = buffer_ptr;
 	// Flags.
+	// Check length.
 	if (*buffer_index != FLAGS_LENGTH) {
 		ESP_LOGI(APP_TAG, "AD: no Flags structure");
 		return;
 	}
+	// Check type.
 	buffer_index++;
 	if (*buffer_index != FLAGS_TYPE) {
 		ESP_LOGI(APP_TAG, "AD: no Flags type");
 		return;
 	}
+	// Jump over data
 	buffer_index += 2;
-	//uint8_t md_length = *buffer_index;
+	// Manufacturer Data.
+	// Get length.
+	uint8_t md_length = *buffer_index;
+	// Check type.
 	buffer_index++;
 	if (*buffer_index != MD_TYPE) {
 		ESP_LOGI(APP_TAG, "AD: no manufacturer data type");
 		return;
 	}
+	// Check Company Identifier code.
 	buffer_index++;
 	uint16_t company_identifier = (*buffer_index << 8) + *(buffer_index + 1);
 	if (company_identifier != MD_CI_CODE) {
 		ESP_LOGI(APP_TAG, "AD: no Ruuvi identifier");
 		return;
 	}
+	// Check Ruuvi tag data.
+	buffer_index += 2;
+
+	// 3 = Type byte + Company Identifier code.
+	check_ruuvi_tag_data(buffer_index, md_length, buffer_length - 3);
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
