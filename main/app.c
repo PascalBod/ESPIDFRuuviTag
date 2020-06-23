@@ -46,19 +46,23 @@
 #define RUUVI_RAWV1 0x03
 #define RUUVI_RAWV2 0x05
 
+// Ruuvi data length.
+#define RUUVI_RAWV1_LENGTH 14
+#define RUUVI_RAWV2_LENGTH 24
+
 // 1000 ms.
 #define SCAN_INTERVAL 0x0640
 // 500 ms.
 #define SCAN_WINDOW 0x0320
 
-#define APP_VERSION "RuuviTagRec 0.3.2"
+#define APP_VERSION "RuuviTagRec 0.4.0"
 
 static const char APP_TAG[] = "RUUVITAGREC";
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
 static esp_ble_scan_params_t ble_scan_params = {
-    .scan_type              = BLE_SCAN_TYPE_ACTIVE,
+    .scan_type              = BLE_SCAN_TYPE_PASSIVE,
     .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
     .scan_filter_policy     = BLE_SCAN_FILTER_ALLOW_ALL,
     .scan_interval          = SCAN_INTERVAL,
@@ -74,9 +78,14 @@ static void check_ruuvi_tag_data(uint8_t *data_ptr, uint8_t data_length, uint8_t
 	}
 	// Check header byte.
 	if (*data_ptr == RUUVI_RAWV1) {
+		// Check length.
+		if (remaining_length < RUUVI_RAWV1_LENGTH) {
+			ESP_LOGI(APP_TAG, "Ruuvi: RAWv1 data too short");
+			return;
+		}
 		// Get humidity.
 		data_ptr++;
-		float humidity = (*data_ptr) / 2;
+		float humidity = (float)(*data_ptr) / 2.0;
 		// Get temperature.
 		data_ptr++;
 		float temperature = (*data_ptr);
@@ -86,9 +95,22 @@ static void check_ruuvi_tag_data(uint8_t *data_ptr, uint8_t data_length, uint8_t
 			temperature += (float)(*(data_ptr + 1)) / 100.0;
 		// Get pressure.
 		data_ptr += 2;
-		float pressure = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 50.0;
+		float pressure = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 100.0 + 500.0;
+		// Get X acceleration.
+		data_ptr += 2;
+		int16_t accel_x = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
+		// Get Y acceleration.
+		data_ptr += 2;
+		int16_t accel_y = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
+		// Get Z acceleration.
+		data_ptr += 2;
+		int16_t accel_z = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
+		// Get battery voltage.
+		data_ptr += 2;
+		float voltage = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 1000.0;
 		// Display.
-		ESP_LOGI(APP_TAG, "Ruuvi: humidity: %f - temperature: %f - pressure: %f", humidity, temperature, pressure);
+		ESP_LOGI(APP_TAG, "Ruuvi: humidity: %.2f - temperature: %.2f - pressure: %.2f", humidity, temperature, pressure);
+		ESP_LOGI(APP_TAG, "       accel: %d, %d, %d - battery: %.2f", accel_x, accel_y, accel_z, voltage);
 	}
 }
 
@@ -156,7 +178,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
     case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
     	ESP_LOGI(APP_TAG, "Event: SCAN_PARAM_SET_COMPLETE");
         // The unit of the duration is second, 0 means scan permanently.
-        uint32_t duration = 0;
+        uint32_t duration = 0xffff;
         esp_ble_gap_start_scanning(duration);
         ESP_LOGI(APP_TAG, "Starting scan...");
         break;
