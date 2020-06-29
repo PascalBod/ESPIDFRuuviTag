@@ -52,10 +52,10 @@
 
 // 1000 ms.
 #define SCAN_INTERVAL 0x0640
-// 500 ms.
-#define SCAN_WINDOW 0x0320
+// 1000 ms.
+#define SCAN_WINDOW 0x0640
 
-#define APP_VERSION "RuuviTagRec 0.4.0"
+#define APP_VERSION "RuuviTagRec 0.4.1"
 
 static const char APP_TAG[] = "RUUVITAGREC";
 
