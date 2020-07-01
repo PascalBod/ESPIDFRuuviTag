@@ -55,7 +55,7 @@
 // 1000 ms.
 #define SCAN_WINDOW 0x0640
 
-#define APP_VERSION "RuuviTagRec 0.4.1"
+#define APP_VERSION "RuuviTagRec 0.5.0"
 
 static const char APP_TAG[] = "RUUVITAGREC";
 
@@ -109,8 +109,23 @@ static void check_ruuvi_tag_data(uint8_t *data_ptr, uint8_t data_length, uint8_t
 		data_ptr += 2;
 		float voltage = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 1000.0;
 		// Display.
-		ESP_LOGI(APP_TAG, "Ruuvi: humidity: %.2f - temperature: %.2f - pressure: %.2f", humidity, temperature, pressure);
+		ESP_LOGI(APP_TAG, "Ruuvi RAWv1: humidity: %.2f - temperature: %.2f - pressure: %.2f", humidity, temperature, pressure);
 		ESP_LOGI(APP_TAG, "       accel: %d, %d, %d - battery: %.2f", accel_x, accel_y, accel_z, voltage);
+		return;
+	}
+
+	// At this stage, we have another data format.
+	if (*data_ptr == RUUVI_RAWV2) {
+		// Check length.
+		if (remaining_length < RUUVI_RAWV2_LENGTH) {
+			ESP_LOGI(APP_TAG, "Ruuvi: RAWv2 data too short");
+			return;
+		}
+		// Get temperature.
+		data_ptr++;
+		float temperature = (float)((int16_t)(*data_ptr << 8) + *(data_ptr + 1)) * 0.005;
+		ESP_LOGI(APP_TAG, "Ruuvi RAWv2: temperature: %.2f", temperature);
+		return;
 	}
 }
 
