@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
+
 #include "nvs_flash.h"
 
 #include "esp_bt.h"
@@ -30,6 +31,8 @@
 #include "esp_bt_defs.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+
+#include "ruuvi_tag.h"
 
 // Minimal advertising data length we are waiting for:
 // Flags: 3 bytes
@@ -42,22 +45,14 @@
 #define MD_TYPE 0xff
 #define MD_CI_CODE 0x9904
 
-// Ruuvi data header bytes.
-#define RUUVI_RAWV1 0x03
-#define RUUVI_RAWV2 0x05
-
-// Ruuvi data length.
-#define RUUVI_RAWV1_LENGTH 14
-#define RUUVI_RAWV2_LENGTH 24
-
 // 1000 ms.
 #define SCAN_INTERVAL 0x0640
 // 1000 ms.
 #define SCAN_WINDOW 0x0640
 
-#define APP_VERSION "RuuviTagRec 0.5.0"
+#define APP_VERSION "RuuviTagRec 0.5.6"
 
-static const char APP_TAG[] = "RUUVITAGREC";
+const char APP_TAG[] = "RUUVITAGREC";
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 
@@ -69,65 +64,6 @@ static esp_ble_scan_params_t ble_scan_params = {
     .scan_window            = SCAN_WINDOW,
     .scan_duplicate         = BLE_SCAN_DUPLICATE_DISABLE
 };
-
-static void check_ruuvi_tag_data(uint8_t *data_ptr, uint8_t data_length, uint8_t remaining_length) {
-
-	if (remaining_length < data_length) {
-		ESP_LOGI(APP_TAG, "Ruuvi: data too short - %d - %d", data_length, remaining_length);
-		return;
-	}
-	// Check header byte.
-	if (*data_ptr == RUUVI_RAWV1) {
-		// Check length.
-		if (remaining_length < RUUVI_RAWV1_LENGTH) {
-			ESP_LOGI(APP_TAG, "Ruuvi: RAWv1 data too short");
-			return;
-		}
-		// Get humidity.
-		data_ptr++;
-		float humidity = (float)(*data_ptr) / 2.0;
-		// Get temperature.
-		data_ptr++;
-		float temperature = (*data_ptr);
-		if (temperature < 0)
-			temperature -= (float)(*(data_ptr + 1)) / 100.0;
-		else
-			temperature += (float)(*(data_ptr + 1)) / 100.0;
-		// Get pressure.
-		data_ptr += 2;
-		float pressure = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 100.0 + 500.0;
-		// Get X acceleration.
-		data_ptr += 2;
-		int16_t accel_x = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
-		// Get Y acceleration.
-		data_ptr += 2;
-		int16_t accel_y = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
-		// Get Z acceleration.
-		data_ptr += 2;
-		int16_t accel_z = (int16_t)(*data_ptr << 8) + *(data_ptr + 1);
-		// Get battery voltage.
-		data_ptr += 2;
-		float voltage = (float)(((uint16_t)(*data_ptr << 8) + (*(data_ptr + 1)))) / 1000.0;
-		// Display.
-		ESP_LOGI(APP_TAG, "Ruuvi RAWv1: humidity: %.2f - temperature: %.2f - pressure: %.2f", humidity, temperature, pressure);
-		ESP_LOGI(APP_TAG, "       accel: %d, %d, %d - battery: %.2f", accel_x, accel_y, accel_z, voltage);
-		return;
-	}
-
-	// At this stage, we have another data format.
-	if (*data_ptr == RUUVI_RAWV2) {
-		// Check length.
-		if (remaining_length < RUUVI_RAWV2_LENGTH) {
-			ESP_LOGI(APP_TAG, "Ruuvi: RAWv2 data too short");
-			return;
-		}
-		// Get temperature.
-		data_ptr++;
-		float temperature = (float)((int16_t)(*data_ptr << 8) + *(data_ptr + 1)) * 0.005;
-		ESP_LOGI(APP_TAG, "Ruuvi RAWv2: temperature: %.2f", temperature);
-		return;
-	}
-}
 
 static void check_ruuvi_tag_adv(uint8_t *buffer_ptr, uint8_t buffer_length) {
 
@@ -179,11 +115,11 @@ static void check_ruuvi_tag_adv(uint8_t *buffer_ptr, uint8_t buffer_length) {
 		ESP_LOGI(APP_TAG, "AD: no Ruuvi identifier");
 		return;
 	}
-	// Check Ruuvi tag data.
+	// Check Ruuvi tag data. buffer_index has been moved forward of
+	// MINIMAL_ADV_LENGTH bytes and md_length includes type and Company
+	// Identifier, i.e. 3 bytes.
 	buffer_index += 2;
-
-	// 3 = Type byte + Company Identifier code.
-	check_ruuvi_tag_data(buffer_index, md_length, buffer_length - 3);
+	check_ruuvi_tag_data(buffer_index, md_length - 3, buffer_length - MINIMAL_ADV_LENGTH);
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
