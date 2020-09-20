@@ -19,7 +19,7 @@ For reference documents about Bluetooth LE, Ruuvi tag and ESP-IDF, check the sou
 To build, flash and monitor the output from the application, run:
 
 ```
-idp.py -p PORT flash monitor
+idf.py -p PORT flash monitor
 ```
 
 (To exit the serial monitor, type ``Ctrl-]``.)
